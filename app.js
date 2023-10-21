@@ -13,7 +13,36 @@ const app = new Koa();
 const json = new KoaJson({ pretty: false, param: 'json-pretty' });
 const router = new KoaRouter();
 
-router.get('/', async ctx => ctx.body = { message: 'Hello World' });
+const mapJobSource = (type) => {
+   let source;
+
+   switch (type) {
+      case 'reed-co-uk':
+      default:
+         source = 'reed.co.uk' 
+         break;
+   }
+
+   return source;
+}
+
+router.get('/rest/jobs', ctx => {
+   ctx.body = ctx.db
+      .collection('jobs')
+      .find()
+      .map(job => {
+         return {
+            id: job._id,
+            source: mapJobSource(job.type),
+            title: job.jobTitle,
+            location: job.locationName,
+            company_name: job.employerName,
+            posted_at: job.date,
+            expires_at: job.expirationDate,
+            url: job.jobUrl
+         };
+      });
+});
 
 app.use(mongo({ uri: process.env.DATABASE_URI }))
    .use(json)
