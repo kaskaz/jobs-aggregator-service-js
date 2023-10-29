@@ -1,10 +1,13 @@
 const Koa = require('koa');
 const KoaJson = require('koa-json');
 const KoaRouter = require('koa-router');
+const cors = require('@koa/cors');
+const sse = require('koa-sse-stream');
+const mongo = require('koa-mongo');
 const schedule = require('node-schedule');
 const axios = require('axios');
-const mongo = require('koa-mongo');
 const { MongoClient } = require('mongodb');
+const { ChangeStream } = require('mongodb');
 
 /**
  * Setup Koa dependencies
@@ -26,12 +29,74 @@ const mapJobSource = (type) => {
    return source;
 }
 
+/**
+ * Returns latest 100 posted jobs
+ */
 router.get('/rest/jobs', ctx => {
    ctx.body = ctx.db
       .collection('jobs')
-      .find()
+      .aggregate([
+         { $addFields: { 
+            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
+            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
+         } },
+         { $sort: { _date: -1, _id: -1 } },
+         { $limit: 100 }
+      ])
       .map(job => {
          return {
+            id: job._id,
+            source: mapJobSource(job.type),
+            title: job.jobTitle,
+            location: job.locationName,
+            company_name: job.employerName,
+            posted_at: job._date,
+            expires_at: job._expirationDate,
+            url: job.jobUrl
+         };
+      });
+});
+
+/**
+ * Returns latest 100 posted jobs and all next incoming jobs
+ */
+router.get('/stream/jobs', ctx => {
+   ctx.db
+      .collection('jobs')
+      .aggregate([
+         { $addFields: { 
+            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
+            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
+         } },
+         { $sort: { _date: -1, _id: -1 } },
+         { $limit: 100 }
+      ])
+      .forEach(job => {
+         ctx.sse.send(JSON.stringify({
+            id: job._id,
+            source: mapJobSource(job.type),
+            title: job.jobTitle,
+            location: job.locationName,
+            company_name: job.employerName,
+            posted_at: job._date,
+            expires_at: job._expirationDate,
+            url: job.jobUrl
+         }));
+      });
+
+   ctx.db
+      .collection('jobs')
+      .watch([
+         { $match: { operationType: 'insert' } },
+         { $addFields: { 
+            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
+            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
+         } }
+      ])
+      .on(ChangeStream.CHANGE, doc => {
+         let job = doc.fullDocument;
+
+         ctx.sse.send(JSON.stringify({
             id: job._id,
             source: mapJobSource(job.type),
             title: job.jobTitle,
@@ -40,12 +105,14 @@ router.get('/rest/jobs', ctx => {
             posted_at: job.date,
             expires_at: job.expirationDate,
             url: job.jobUrl
-         };
+         }));
       });
 });
 
 app.use(mongo({ uri: process.env.DATABASE_URI }))
    .use(json)
+   .use(sse())
+   .use(cors())
    .use(router.routes())
    .use(router.allowedMethods());
 
@@ -54,9 +121,10 @@ app.use(mongo({ uri: process.env.DATABASE_URI }))
  */
 const mongodb = new MongoClient(process.env.DATABASE_URI);
 
-(async () => {
-   await mongodb.connect();
-   console.log('Connected to database');
+(() => {
+   mongodb.connect()
+      .then(client => console.log('Connected to database'))
+      .catch(reason => console.log('Could not connect to database', reason))
 })();
 
 /**
