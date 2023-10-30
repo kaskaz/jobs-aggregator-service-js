@@ -29,20 +29,26 @@ const mapJobSource = (type) => {
    return source;
 }
 
+const COMMON_AGGREGATE_PIPELINE_FIELDS = [
+   { $addFields: { 
+      _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
+      _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
+   } }
+];
+
+const COMMON_AGGREGATE_PIPELINE = [
+   ...COMMON_AGGREGATE_PIPELINE_FIELDS,
+   { $sort: { _date: -1, _id: -1 } },
+   { $limit: 100 }
+];
+
 /**
  * Returns latest 100 posted jobs
  */
 router.get('/rest/jobs', ctx => {
    ctx.body = ctx.db
       .collection('jobs')
-      .aggregate([
-         { $addFields: { 
-            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
-            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
-         } },
-         { $sort: { _date: -1, _id: -1 } },
-         { $limit: 100 }
-      ])
+      .aggregate(COMMON_AGGREGATE_PIPELINE)
       .map(job => {
          return {
             id: job._id,
@@ -63,14 +69,7 @@ router.get('/rest/jobs', ctx => {
 router.get('/stream/jobs', ctx => {
    ctx.db
       .collection('jobs')
-      .aggregate([
-         { $addFields: { 
-            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
-            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
-         } },
-         { $sort: { _date: -1, _id: -1 } },
-         { $limit: 100 }
-      ])
+      .aggregate(COMMON_AGGREGATE_PIPELINE)
       .forEach(job => {
          ctx.sse.send(JSON.stringify({
             id: job._id,
@@ -88,10 +87,7 @@ router.get('/stream/jobs', ctx => {
       .collection('jobs')
       .watch([
          { $match: { operationType: 'insert' } },
-         { $addFields: { 
-            _date: { $dateFromString: { dateString: "$date", format: "%d/%m/%Y" } },
-            _expirationDate: { $dateFromString: { dateString: "$expirationDate", format: "%d/%m/%Y" } },
-         } }
+         ...COMMON_AGGREGATE_PIPELINE_FIELDS,
       ])
       .on(ChangeStream.CHANGE, doc => {
          let job = doc.fullDocument;
