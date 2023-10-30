@@ -10,6 +10,12 @@ const { MongoClient } = require('mongodb');
 const { ChangeStream } = require('mongodb');
 
 /**
+ * Constants
+ */
+const DATABASE_JOBS_COLLECTION = 'jobs';
+const JOBS_PROVIDER_TYPE_REEDCOUK = 'reed-co-uk';
+
+/**
  * Setup Koa dependencies
  */
 const app = new Koa();
@@ -20,7 +26,7 @@ const mapJobSource = (type) => {
    let source;
 
    switch (type) {
-      case 'reed-co-uk':
+      case JOBS_PROVIDER_TYPE_REEDCOUK:
       default:
          source = 'reed.co.uk' 
          break;
@@ -47,7 +53,7 @@ const COMMON_AGGREGATE_PIPELINE = [
  */
 router.get('/rest/jobs', ctx => {
    ctx.body = ctx.db
-      .collection('jobs')
+      .collection(DATABASE_JOBS_COLLECTION)
       .aggregate(COMMON_AGGREGATE_PIPELINE)
       .map(job => {
          return {
@@ -68,7 +74,7 @@ router.get('/rest/jobs', ctx => {
  */
 router.get('/stream/jobs', ctx => {
    ctx.db
-      .collection('jobs')
+      .collection(DATABASE_JOBS_COLLECTION)
       .aggregate(COMMON_AGGREGATE_PIPELINE)
       .forEach(job => {
          ctx.sse.send(JSON.stringify({
@@ -84,7 +90,7 @@ router.get('/stream/jobs', ctx => {
       });
 
    ctx.db
-      .collection('jobs')
+      .collection(DATABASE_JOBS_COLLECTION)
       .watch([
          { $match: { operationType: 'insert' } },
          ...COMMON_AGGREGATE_PIPELINE_FIELDS,
@@ -126,7 +132,7 @@ const mongodb = new MongoClient(process.env.DATABASE_URI);
 /**
  * Schedulers
  */
-schedule.scheduleJob('reed-co-uk', '* * * * *', () => {
+schedule.scheduleJob(JOBS_PROVIDER_TYPE_REEDCOUK, '* * * * *', () => {
    console.log('Calling reed.co.uk');
 
    axios
@@ -140,10 +146,10 @@ schedule.scheduleJob('reed-co-uk', '* * * * *', () => {
          res.data.results.forEach(async entry => {
             await mongodb
                .db()
-               .collection('jobs')
+               .collection(DATABASE_JOBS_COLLECTION)
                .updateOne(
                   { 'jobId': entry.jobId },
-                  { $set: { type: 'reed-co-uk', ...entry }},
+                  { $set: { type: JOBS_PROVIDER_TYPE_REEDCOUK, ...entry }},
                   { upsert: true }
                )
          });
