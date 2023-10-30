@@ -154,4 +154,7 @@ schedule.scheduleJob('reed-co-uk', '* * * * *', () => {
 /**
  * Server initialization
  */
-app.listen(3000, () => console.log('Server started...'));
+app.listen(
+   process.env.SERVER_PORT,
+   () => console.log(`Server started at port ${process.env.SERVER_PORT}`)
+);
